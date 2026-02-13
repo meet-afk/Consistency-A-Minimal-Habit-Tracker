@@ -7,7 +7,7 @@
 ![Database](https://img.shields.io/badge/Database-Isar-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
-Consistency is a clean, offline-first habit tracking app designed to help users build sustainable routines through streak tracking, smart visualizations, reminders, and achievements — without ads, subscriptions, or cloud dependency.
+Consistency is a clean, offline-first habit tracking app designed to help users build sustainable routines through streak tracking, smart visualizations, reminders, and achievements without ads, subscriptions, or cloud dependency.
 
 ---
 
