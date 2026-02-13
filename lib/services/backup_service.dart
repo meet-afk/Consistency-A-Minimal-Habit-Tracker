@@ -27,12 +27,15 @@ class BackupService {
           'longestStreak': habit.longestStreak,
           'reminderTime': habit.reminderTime?.toIso8601String(),
           'isReminderOn': habit.isReminderOn,
+          'frequencyType': habit.frequencyType,
+          'customDays': habit.customDays,
+          'weeklyTarget': habit.weeklyTarget,
         };
       }).toList();
 
       final backupData = {
         'appName': 'Consistency',
-        'version': 2,
+        'version': 3,
         'exportDate': DateTime.now().toIso8601String(),
         'habits': habitList,
       };
@@ -107,7 +110,13 @@ class BackupService {
             ..reminderTime = hData['reminderTime'] != null
                 ? DateTime.parse(hData['reminderTime'])
                 : null
-            ..isReminderOn = hData['isReminderOn'] ?? false;
+            ..isReminderOn = hData['isReminderOn'] ?? false
+            ..frequencyType = hData['frequencyType'] ?? 0
+            ..customDays = (hData['customDays'] as List<dynamic>?)
+                    ?.map((d) => d as int)
+                    .toList() ??
+                []
+            ..weeklyTarget = hData['weeklyTarget'] ?? 7;
 
           final newId = await isar.habits.put(habit);
 

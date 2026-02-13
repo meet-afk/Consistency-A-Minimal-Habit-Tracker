@@ -430,6 +430,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       isCompleted: completed,
                       text: habit.name,
                       streak: habit.streak,
+                      frequencyLabel: HabitDatabase.frequencyLabel(habit),
                       onChanged: (val) {
                         if (val != null) {
                           context
@@ -536,6 +537,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _showCreateHabitDialog() {
     _textController.clear();
+    int selectedFrequency = 0;
+    List<int> selectedDays = [];
+    int weeklyTarget = 3;
+
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -552,75 +557,96 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return Center(
           child: Material(
             color: Colors.transparent,
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.85,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'New Habit',
-                    style: GoogleFonts.aBeeZee(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.inversePrimary,
-                    ),
+            child: StatefulBuilder(
+              builder: (context, setDialogState) {
+                return Container(
+                  width: MediaQuery.of(context).size.width * 0.88,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _textController,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'Enter habit name',
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.secondary,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () {
-                            final name = _textController.text.trim();
-                            if (name.isNotEmpty) {
-                              context.read<HabitDatabase>().addHabit(name);
-                              Navigator.pop(ctx);
-                            }
-                          },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF407CE6),
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'New Habit',
+                          style: GoogleFonts.aBeeZee(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.inversePrimary,
                           ),
-                          child: Text('Create',
-                              style: GoogleFonts.aBeeZee(
-                                  fontWeight: FontWeight.bold)),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _textController,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: 'Enter habit name',
+                            filled: true,
+                            fillColor: Theme.of(context).colorScheme.secondary,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildFrequencyPicker(
+                          context,
+                          selectedFrequency,
+                          selectedDays,
+                          weeklyTarget,
+                          (freq) => setDialogState(() => selectedFrequency = freq),
+                          (days) => setDialogState(() => selectedDays = days),
+                          (target) => setDialogState(() => weeklyTarget = target),
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  final name = _textController.text.trim();
+                                  if (name.isNotEmpty) {
+                                    context.read<HabitDatabase>().addHabit(
+                                      name,
+                                      frequencyType: selectedFrequency,
+                                      customDays: selectedDays,
+                                      weeklyTarget: selectedFrequency == 2 ? weeklyTarget : 7,
+                                    );
+                                    Navigator.pop(ctx);
+                                  }
+                                },
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF407CE6),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                ),
+                                child: Text('Create',
+                                    style: GoogleFonts.aBeeZee(
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         );
@@ -630,6 +656,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _showEditHabitDialog(dynamic habit) {
     _textController.text = habit.name;
+    int selectedFrequency = habit.frequencyType;
+    List<int> selectedDays = List<int>.from(habit.customDays);
+    int weeklyTarget = habit.weeklyTarget;
+
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -646,77 +676,98 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return Center(
           child: Material(
             color: Colors.transparent,
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.85,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Edit Habit',
-                    style: GoogleFonts.aBeeZee(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.inversePrimary,
-                    ),
+            child: StatefulBuilder(
+              builder: (context, setDialogState) {
+                return Container(
+                  width: MediaQuery.of(context).size.width * 0.88,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _textController,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'Habit name',
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.secondary,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () {
-                            final name = _textController.text.trim();
-                            if (name.isNotEmpty) {
-                              context
-                                  .read<HabitDatabase>()
-                                  .updateHabitName(habit.id, name);
-                              Navigator.pop(ctx);
-                            }
-                          },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF407CE6),
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Edit Habit',
+                          style: GoogleFonts.aBeeZee(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.inversePrimary,
                           ),
-                          child: Text('Save',
-                              style: GoogleFonts.aBeeZee(
-                                  fontWeight: FontWeight.bold)),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _textController,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: 'Habit name',
+                            filled: true,
+                            fillColor: Theme.of(context).colorScheme.secondary,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildFrequencyPicker(
+                          context,
+                          selectedFrequency,
+                          selectedDays,
+                          weeklyTarget,
+                          (freq) => setDialogState(() => selectedFrequency = freq),
+                          (days) => setDialogState(() => selectedDays = days),
+                          (target) => setDialogState(() => weeklyTarget = target),
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  final name = _textController.text.trim();
+                                  if (name.isNotEmpty) {
+                                    final db = context.read<HabitDatabase>();
+                                    db.updateHabitName(habit.id, name);
+                                    db.updateHabitFrequency(
+                                      habit.id,
+                                      frequencyType: selectedFrequency,
+                                      customDays: selectedDays,
+                                      weeklyTarget: selectedFrequency == 2 ? weeklyTarget : 7,
+                                    );
+                                    Navigator.pop(ctx);
+                                  }
+                                },
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF407CE6),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                ),
+                                child: Text('Save',
+                                    style: GoogleFonts.aBeeZee(
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         );
@@ -823,6 +874,149 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  /// Builds the frequency selection widget for create/edit dialogs.
+  Widget _buildFrequencyPicker(
+    BuildContext context,
+    int selectedFrequency,
+    List<int> selectedDays,
+    int weeklyTarget,
+    void Function(int) onFrequencyChanged,
+    void Function(List<int>) onDaysChanged,
+    void Function(int) onTargetChanged,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const dayValues = [1, 2, 3, 4, 5, 6, 7];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Frequency',
+          style: GoogleFonts.aBeeZee(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: colorScheme.inversePrimary.withValues(alpha: 0.6),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            ChoiceChip(
+              label: Text('Daily', style: GoogleFonts.aBeeZee(fontSize: 12)),
+              selected: selectedFrequency == 0,
+              selectedColor: const Color(0xFF407CE6),
+              labelStyle: TextStyle(
+                color: selectedFrequency == 0 ? Colors.white : colorScheme.inversePrimary,
+              ),
+              onSelected: (_) => onFrequencyChanged(0),
+            ),
+            ChoiceChip(
+              label: Text('Custom Days', style: GoogleFonts.aBeeZee(fontSize: 12)),
+              selected: selectedFrequency == 1,
+              selectedColor: const Color(0xFF407CE6),
+              labelStyle: TextStyle(
+                color: selectedFrequency == 1 ? Colors.white : colorScheme.inversePrimary,
+              ),
+              onSelected: (_) => onFrequencyChanged(1),
+            ),
+            ChoiceChip(
+              label: Text('X / Week', style: GoogleFonts.aBeeZee(fontSize: 12)),
+              selected: selectedFrequency == 2,
+              selectedColor: const Color(0xFF407CE6),
+              labelStyle: TextStyle(
+                color: selectedFrequency == 2 ? Colors.white : colorScheme.inversePrimary,
+              ),
+              onSelected: (_) => onFrequencyChanged(2),
+            ),
+          ],
+        ),
+
+        // Custom days picker
+        if (selectedFrequency == 1) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: List.generate(7, (index) {
+              final dayValue = dayValues[index];
+              final isSelected = selectedDays.contains(dayValue);
+              return FilterChip(
+                label: Text(
+                  dayNames[index],
+                  style: GoogleFonts.aBeeZee(
+                    fontSize: 11,
+                    color: isSelected ? Colors.white : colorScheme.inversePrimary,
+                  ),
+                ),
+                selected: isSelected,
+                selectedColor: const Color(0xFF407CE6),
+                checkmarkColor: Colors.white,
+                onSelected: (selected) {
+                  final newDays = List<int>.from(selectedDays);
+                  if (selected) {
+                    newDays.add(dayValue);
+                  } else {
+                    newDays.remove(dayValue);
+                  }
+                  onDaysChanged(newDays);
+                },
+              );
+            }),
+          ),
+        ],
+
+        // Weekly target slider
+        if (selectedFrequency == 2) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Text(
+                'Target: ',
+                style: GoogleFonts.aBeeZee(
+                  fontSize: 13,
+                  color: colorScheme.inversePrimary.withValues(alpha: 0.7),
+                ),
+              ),
+              Text(
+                '$weeklyTarget',
+                style: GoogleFonts.aBeeZee(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF407CE6),
+                ),
+              ),
+              Text(
+                ' times/week',
+                style: GoogleFonts.aBeeZee(
+                  fontSize: 13,
+                  color: colorScheme.inversePrimary.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: const Color(0xFF407CE6),
+              inactiveTrackColor: const Color(0xFF407CE6).withValues(alpha: 0.15),
+              thumbColor: const Color(0xFF407CE6),
+              overlayColor: const Color(0xFF407CE6).withValues(alpha: 0.12),
+            ),
+            child: Slider(
+              value: weeklyTarget.toDouble(),
+              min: 1,
+              max: 7,
+              divisions: 6,
+              label: '$weeklyTarget',
+              onChanged: (val) => onTargetChanged(val.round()),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

@@ -5,6 +5,7 @@ class MyHabitTile extends StatefulWidget {
   final bool isCompleted;
   final String text;
   final int streak;
+  final String frequencyLabel;
   final void Function(bool?)? onChanged;
   final void Function(BuildContext)? editHabit;
   final void Function(BuildContext)? deleteHabit;
@@ -15,6 +16,7 @@ class MyHabitTile extends StatefulWidget {
     required this.isCompleted,
     required this.text,
     required this.streak,
+    this.frequencyLabel = 'Daily',
     required this.onChanged,
     required this.editHabit,
     required this.deleteHabit,
@@ -124,8 +126,12 @@ class _MyHabitTileState extends State<MyHabitTile>
                   ),
                   child: Text(widget.text),
                 ),
-                subtitle: widget.streak > 0
-                    ? Padding(
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.streak > 0)
+                      Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
                           '🔥 ${widget.streak} day streak',
@@ -139,8 +145,25 @@ class _MyHabitTileState extends State<MyHabitTile>
                             fontSize: 12,
                           ),
                         ),
-                      )
-                    : null,
+                      ),
+                    if (widget.frequencyLabel != 'Daily')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          '📅 ${widget.frequencyLabel}',
+                          style: TextStyle(
+                            color: widget.isCompleted
+                                ? Colors.white60
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .inversePrimary
+                                    .withValues(alpha: 0.4),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
                 leading: Transform.scale(
                   scale: 1.15,
                   child: Checkbox(
