@@ -5,99 +5,43 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter/foundation.dart';
 
-/// Top-level background handler — runs even when app is killed.
-/// Must be top-level (not a class method) for Android background execution.
+/// Top-level background handler for notification actions.
+/// Called when the app is NOT in the foreground and an action with
+/// showsUserInterface: false is tapped (i.e. the NO button).
 @pragma('vm:entry-point')
-void notificationActionBackground(NotificationResponse response) {
-  // This runs in a background isolate. We need to handle the action
-  // and communicate with the main isolate if running, or directly
-  // update the database.
-  _handleNotificationAction(response);
-}
-
-/// Processes YES/NO actions from notification buttons.
-Future<void> _handleNotificationAction(NotificationResponse response) async {
-  final payload = response.payload;
-  final actionId = response.actionId;
-
-  if (payload == null || actionId == null) return;
-
-  // Payload format: "habitId"
-  final habitId = int.tryParse(payload);
-  if (habitId == null) return;
-
-  // We need to open Isar in the background isolate if it's not open
-  try {
-    final isar = Isar.getInstance() ?? await _openIsarInBackground();
-    if (isar == null) return;
-
-    final habit = await isar.habits.get(habitId);
-    if (habit == null) return;
-
-    if (actionId == 'yes_action') {
-      final today = DateTime.now();
-      final todayDate = DateTime(today.year, today.month, today.day);
-
-      // Idempotent: don't add duplicate
-      final alreadyDone = habit.completedDays.any((d) =>
-          d.year == todayDate.year &&
-          d.month == todayDate.month &&
-          d.day == todayDate.day);
-
-      if (!alreadyDone) {
-        await isar.writeTxn(() async {
-          habit.completedDays.add(todayDate);
-          await isar.habits.put(habit);
-        });
-      }
-    }
-    // NO action: do nothing — habit stays incomplete
-
-    // Cancel the persistent notification
-    final plugin = FlutterLocalNotificationsPlugin();
-    await plugin.cancel(id: habitId + 100000); // persistent notification ID
-  } catch (e) {
-    debugPrint('Background notification action error: $e');
-  }
-}
-
-/// Opens Isar in a background isolate (if not already open).
-Future<Isar?> _openIsarInBackground() async {
-  try {
-    // In background, we can't use getApplicationDocumentsDirectory easily
-    // Instead, try to get instance that may already be open
-    return Isar.getInstance();
-  } catch (e) {
-    return null;
-  }
+void notificationActionBackground(NotificationResponse response) async {
+  // NO button has cancelNotification: true on the Android side,
+  // so the notification is already dismissed by the system.
+  // Nothing else to do — NO means "leave habit incomplete".
 }
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
 
-  factory NotificationService() {
-    return _instance;
-  }
+  factory NotificationService() => _instance;
 
   NotificationService._internal();
 
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  /// Persistent notification channel
-  static const String _persistentChannelId = 'habit_persistent';
-  static const String _persistentChannelName = 'Habit Check-in';
-  static const String _persistentChannelDesc =
+  /// Set this from main.dart to refresh the habit list after a
+  /// notification YES action completes a habit.
+  static VoidCallback? onHabitMarkedComplete;
+
+  static const String _channelId = 'habit_persistent';
+  static const String _channelName = 'Habit Check-in';
+  static const String _channelDesc =
       'Persistent notifications that wait for your response';
 
+  /// Called once during app startup.
   Future<void> init() async {
     tz.initializeTimeZones();
 
-    const AndroidInitializationSettings initializationSettingsAndroid =
+    const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    final DarwinInitializationSettings initializationSettingsDarwin =
-        DarwinInitializationSettings(
+    final darwinSettings = DarwinInitializationSettings(
       requestSoundPermission: false,
       requestBadgePermission: false,
       requestAlertPermission: false,
@@ -105,167 +49,167 @@ class NotificationService {
         DarwinNotificationCategory(
           'habitCategory',
           actions: [
-            DarwinNotificationAction.plain('yes_action', 'YES ✅'),
-            DarwinNotificationAction.plain('no_action', 'NO ❌'),
+            DarwinNotificationAction.plain('yes_action', 'YES'),
+            DarwinNotificationAction.plain('no_action', 'NO'),
           ],
         ),
       ],
     );
 
-    final LinuxInitializationSettings initializationSettingsLinux =
+    final linuxSettings =
         LinuxInitializationSettings(defaultActionName: 'Open notification');
 
-    final InitializationSettings initializationSettings =
-        InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsDarwin,
-      macOS: initializationSettingsDarwin,
-      linux: initializationSettingsLinux,
-    );
-
-    await flutterLocalNotificationsPlugin.initialize(
-      settings: initializationSettings,
+    await _plugin.initialize(
+      settings: InitializationSettings(
+        android: androidSettings,
+        iOS: darwinSettings,
+        macOS: darwinSettings,
+        linux: linuxSettings,
+      ),
       onDidReceiveNotificationResponse: _onForegroundAction,
       onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
     );
   }
 
-  /// Handles actions when app is in foreground.
-  void _onForegroundAction(NotificationResponse response) {
-    _handleNotificationAction(response);
+  /// Foreground handler — app is running.
+  /// YES button has showsUserInterface: true, so it always comes here.
+  void _onForegroundAction(NotificationResponse response) async {
+    final actionId = response.actionId;
+    final payload = response.payload;
+
+    if (payload == null) return;
+    final habitId = int.tryParse(payload);
+    if (habitId == null) return;
+
+    if (actionId == 'yes_action') {
+      try {
+        // Isar is already open in the main isolate
+        final isar = Isar.getInstance();
+        if (isar == null) return;
+
+        final habit = await isar.habits.get(habitId);
+        if (habit == null) return;
+
+        final today = DateTime.now();
+        final todayDate = DateTime(today.year, today.month, today.day);
+
+        // Idempotent — don't add duplicate
+        final alreadyDone = habit.completedDays.any((d) =>
+            d.year == todayDate.year &&
+            d.month == todayDate.month &&
+            d.day == todayDate.day);
+
+        if (!alreadyDone) {
+          await isar.writeTxn(() async {
+            habit.completedDays.add(todayDate);
+            await isar.habits.put(habit);
+          });
+        }
+
+        // Refresh the UI so the habit shows as checked
+        onHabitMarkedComplete?.call();
+      } catch (e) {
+        debugPrint('YES action error: $e');
+      }
+    }
+    // NO action: cancelNotification: true handles dismissal, nothing to do
   }
 
   Future<void> requestPermissions() async {
     if (defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS) {
-      await flutterLocalNotificationsPlugin
+      await _plugin
           .resolvePlatformSpecificImplementation<
               IOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(
-            alert: true,
-            badge: true,
-            sound: true,
-          );
-      await flutterLocalNotificationsPlugin
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      await _plugin
           .resolvePlatformSpecificImplementation<
               MacOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(
-            alert: true,
-            badge: true,
-            sound: true,
-          );
+          ?.requestPermissions(alert: true, badge: true, sound: true);
     } else if (defaultTargetPlatform == TargetPlatform.android) {
-      final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-          flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
-
-      await androidImplementation?.requestNotificationsPermission();
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
     }
   }
 
-  /// Schedule a daily repeating reminder with persistent interactive notification.
-  ///
-  /// This schedules a zonedSchedule that repeats daily at the given time.
-  /// When fired, it shows a persistent notification with YES/NO buttons.
+  /// Schedule a daily persistent reminder with YES / NO action buttons.
   Future<void> scheduleReminder(int id, String title, DateTime time) async {
     final now = DateTime.now();
     var scheduledTime = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      time.hour,
-      time.minute,
+      now.year, now.month, now.day, time.hour, time.minute,
     );
 
-    // If time has passed today, schedule for tomorrow
     if (scheduledTime.isBefore(now)) {
       scheduledTime = scheduledTime.add(const Duration(days: 1));
     }
 
-    // Schedule the repeating reminder (fires daily, shows persistent notification)
-    await flutterLocalNotificationsPlugin.zonedSchedule(
+    await _plugin.zonedSchedule(
       id: id,
       title: title,
       body: 'Did you complete this habit today?',
       scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          _persistentChannelId,
-          _persistentChannelName,
-          channelDescription: _persistentChannelDesc,
-          importance: Importance.max,
-          priority: Priority.high,
-          ongoing: true,
-          autoCancel: false,
-          category: AndroidNotificationCategory.reminder,
-          actions: const [
-            AndroidNotificationAction(
-              'yes_action',
-              'YES ✅',
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              'no_action',
-              'NO ❌',
-              showsUserInterface: false,
-            ),
-          ],
-        ),
-        iOS: const DarwinNotificationDetails(
-          categoryIdentifier: 'habitCategory',
-        ),
-      ),
+      notificationDetails: _buildNotificationDetails(),
       payload: '$id',
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time, // Repeats daily
+      matchDateTimeComponents: DateTimeComponents.time,
     );
   }
 
-  /// Show a persistent notification immediately (for testing or manual trigger).
-  Future<void> showPersistentNotification(int habitId, String habitName) async {
-    await flutterLocalNotificationsPlugin.show(
-      id: habitId + 100000, // Offset ID to avoid conflict with scheduled
-      title: habitName,
-      body: 'Did you complete this habit today?',
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          _persistentChannelId,
-          _persistentChannelName,
-          channelDescription: _persistentChannelDesc,
-          importance: Importance.max,
-          priority: Priority.high,
-          ongoing: true,
-          autoCancel: false,
-          category: AndroidNotificationCategory.reminder,
-          actions: const [
-            AndroidNotificationAction(
-              'yes_action',
-              'YES ✅',
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              'no_action',
-              'NO ❌',
-              showsUserInterface: false,
-            ),
-          ],
-        ),
-        iOS: const DarwinNotificationDetails(
-          categoryIdentifier: 'habitCategory',
-        ),
-      ),
-      payload: '$habitId',
-    );
+  /// Dismiss the current visible notification for a habit and re-schedule
+  /// for tomorrow. Call this when the user completes a habit from the app.
+  Future<void> dismissAndReschedule(
+      int habitId, String habitName, DateTime reminderTime) async {
+    // cancel() kills both the displayed notification AND the repeating alarm
+    await _plugin.cancel(id: habitId);
+
+    // Re-schedule — scheduleReminder adds +1 day if time already passed
+    await scheduleReminder(habitId, habitName, reminderTime);
   }
 
-  /// Cancel a scheduled reminder and any persistent notification.
+  /// Cancel a reminder entirely (e.g. when deleting a habit or toggling off).
   Future<void> cancelReminder(int id) async {
-    await flutterLocalNotificationsPlugin.cancel(id: id);
-    await flutterLocalNotificationsPlugin.cancel(id: id + 100000);
+    await _plugin.cancel(id: id);
   }
 
   /// Cancel all notifications.
   Future<void> cancelAll() async {
-    await flutterLocalNotificationsPlugin.cancelAll();
+    await _plugin.cancelAll();
+  }
+
+  /// Shared notification details — persistent with YES/NO buttons.
+  NotificationDetails _buildNotificationDetails() {
+    return const NotificationDetails(
+      android: AndroidNotificationDetails(
+        _channelId,
+        _channelName,
+        channelDescription: _channelDesc,
+        importance: Importance.max,
+        priority: Priority.high,
+        ongoing: true,
+        autoCancel: false,
+        category: AndroidNotificationCategory.reminder,
+        actions: [
+          AndroidNotificationAction(
+            'yes_action',
+            'YES',
+            // Opens app so foreground handler can access Isar
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+          AndroidNotificationAction(
+            'no_action',
+            'NO',
+            // No need to open app — just dismiss
+            showsUserInterface: false,
+            cancelNotification: true,
+          ),
+        ],
+      ),
+      iOS: DarwinNotificationDetails(
+        categoryIdentifier: 'habitCategory',
+      ),
+    );
   }
 }

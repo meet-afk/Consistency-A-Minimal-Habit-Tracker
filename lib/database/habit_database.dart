@@ -32,15 +32,14 @@ class HabitDatabase extends ChangeNotifier {
     return settings?.firstLaunchDate;
   }
 
-  // List of habits
   final List<Habit> currentHabits = [];
 
-  // Init habits
   Future<void> init() async {
     await readHabits();
   }
 
-  // Add habits with frequency
+  // ───────────────────────── CRUD ─────────────────────────
+
   Future<void> addHabit(
     String habitName, {
     int frequencyType = 0,
@@ -57,23 +56,20 @@ class HabitDatabase extends ChangeNotifier {
   }
 
   Future<void> readHabits() async {
-    final fetchedHabits = await isar.habits.where().findAll();
+    final fetched = await isar.habits.where().findAll();
     currentHabits.clear();
-    currentHabits.addAll(fetchedHabits);
+    currentHabits.addAll(fetched);
     notifyListeners();
   }
 
-  // Update habit completion
   Future<void> updateHabitCompletion(int id, bool isCompleted) async {
     final habit = await isar.habits.get(id);
-
     if (habit != null) {
       await isar.writeTxn(() async {
         final today = DateTime.now();
         final todayDate = DateTime(today.year, today.month, today.day);
 
         if (isCompleted) {
-          // Avoid duplicates
           if (!habit.completedDays.any((d) =>
               d.year == today.year &&
               d.month == today.month &&
@@ -81,272 +77,31 @@ class HabitDatabase extends ChangeNotifier {
             habit.completedDays.add(todayDate);
           }
         } else {
-          habit.completedDays.removeWhere(
-            (date) =>
-                date.year == today.year &&
-                date.month == today.month &&
-                date.day == today.day,
-          );
+          habit.completedDays.removeWhere((d) =>
+              d.year == today.year &&
+              d.month == today.month &&
+              d.day == today.day);
         }
 
         _calculateStreaks(habit);
         await isar.habits.put(habit);
       });
+
+      // Dismiss persistent notification if completed & has reminder
+      if (isCompleted && habit.isReminderOn && habit.reminderTime != null) {
+        await _notificationService.dismissAndReschedule(
+          id, habit.name, habit.reminderTime!,
+        );
+      }
     }
     readHabits();
   }
 
-  /// Frequency-aware streak calculation.
-  ///
-  /// - **Daily (type 0):** Every consecutive day must be completed.
-  /// - **Custom days (type 1):** Only scheduled weekdays count. Gaps on
-  ///   non-scheduled days do NOT break the streak.
-  /// - **X per week (type 2):** Each calendar week (Mon-Sun) where the
-  ///   weekly target is met counts as one streak unit.
-  void _calculateStreaks(Habit habit) {
-    if (habit.completedDays.isEmpty) {
-      habit.streak = 0;
-      habit.longestStreak = 0;
-      return;
-    }
-
-    habit.completedDays.sort();
-
-    if (habit.frequencyType == 0) {
-      _calculateDailyStreaks(habit);
-    } else if (habit.frequencyType == 1) {
-      _calculateCustomDaysStreaks(habit);
-    } else if (habit.frequencyType == 2) {
-      _calculateWeeklyTargetStreaks(habit);
-    }
-  }
-
-  /// Daily: original logic — every consecutive calendar day.
-  void _calculateDailyStreaks(Habit habit) {
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-    final yesterdayDate = todayDate.subtract(const Duration(days: 1));
-
-    int currentStreak = 0;
-
-    bool containsToday = habit.completedDays.last.isAtSameMomentAs(todayDate);
-
-    if (containsToday) {
-      currentStreak = 1;
-      DateTime checkDate = yesterdayDate;
-      for (int i = habit.completedDays.length - 2; i >= 0; i--) {
-        if (habit.completedDays[i].isAtSameMomentAs(checkDate)) {
-          currentStreak++;
-          checkDate = checkDate.subtract(const Duration(days: 1));
-        } else {
-          break;
-        }
-      }
-    } else {
-      bool containsYesterday =
-          habit.completedDays.any((d) => d.isAtSameMomentAs(yesterdayDate));
-      if (containsYesterday) {
-        currentStreak = 0;
-        DateTime checkDate = yesterdayDate;
-        for (int i = habit.completedDays.length - 1; i >= 0; i--) {
-          if (habit.completedDays[i].isAtSameMomentAs(checkDate)) {
-            currentStreak++;
-            checkDate = checkDate.subtract(const Duration(days: 1));
-          } else {
-            if (habit.completedDays[i].isBefore(checkDate)) break;
-          }
-        }
-      }
-    }
-
-    habit.streak = currentStreak;
-
-    // Longest streak
-    int tempStreak = 0;
-    int maxStreak = 0;
-    for (int i = 0; i < habit.completedDays.length; i++) {
-      if (i == 0) {
-        tempStreak = 1;
-      } else {
-        final prev = habit.completedDays[i - 1];
-        final curr = habit.completedDays[i];
-        if (curr.difference(prev).inDays == 1) {
-          tempStreak++;
-        } else {
-          if (tempStreak > maxStreak) maxStreak = tempStreak;
-          tempStreak = 1;
-        }
-      }
-    }
-    if (tempStreak > maxStreak) maxStreak = tempStreak;
-    habit.longestStreak = maxStreak;
-  }
-
-  /// Custom days: streak counts scheduled days completed in sequence.
-  /// Missing a non-scheduled day does NOT break the streak.
-  void _calculateCustomDaysStreaks(Habit habit) {
-    if (habit.customDays.isEmpty) {
-      // No days selected → treat as daily
-      _calculateDailyStreaks(habit);
-      return;
-    }
-
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-
-    // Build set of completed dates for O(1) lookup
-    final completedSet = <String>{};
-    for (final d in habit.completedDays) {
-      completedSet.add('${d.year}-${d.month}-${d.day}');
-    }
-
-    // Walk backward from today through scheduled days
-    int currentStreak = 0;
-
-    // Go back max 365 days to find streak
-    for (int dayOffset = 0; dayOffset < 365; dayOffset++) {
-      final d = todayDate.subtract(Duration(days: dayOffset));
-      final weekday = d.weekday; // 1=Mon ... 7=Sun
-
-      if (!habit.customDays.contains(weekday)) continue; // Skip non-scheduled
-
-      final key = '${d.year}-${d.month}-${d.day}';
-      if (completedSet.contains(key)) {
-        currentStreak++;
-      } else {
-        // Today not completed yet is OK — don't break streak
-        if (dayOffset == 0) continue;
-        break;
-      }
-    }
-
-    habit.streak = currentStreak;
-
-    // Longest streak: walk forward through all scheduled days
-    int maxStreak = 0;
-    int tempStreak = 0;
-
-    // Get all dates in range
-    if (habit.completedDays.isNotEmpty) {
-      final firstDate = habit.completedDays.first;
-      final dayCount = todayDate.difference(firstDate).inDays + 1;
-
-      for (int i = 0; i < dayCount; i++) {
-        final d = firstDate.add(Duration(days: i));
-        if (!habit.customDays.contains(d.weekday)) continue;
-
-        final key = '${d.year}-${d.month}-${d.day}';
-        if (completedSet.contains(key)) {
-          tempStreak++;
-        } else {
-          if (tempStreak > maxStreak) maxStreak = tempStreak;
-          tempStreak = 0;
-        }
-      }
-      if (tempStreak > maxStreak) maxStreak = tempStreak;
-    }
-
-    habit.longestStreak = maxStreak;
-  }
-
-  /// X per week: each Mon-Sun week where completions >= weeklyTarget
-  /// counts as one streak unit (consecutive weeks).
-  void _calculateWeeklyTargetStreaks(Habit habit) {
-    if (habit.weeklyTarget <= 0) {
-      habit.streak = 0;
-      habit.longestStreak = 0;
-      return;
-    }
-
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-
-    // Group completions by ISO week
-    final Map<String, int> weekCounts = {};
-    for (final d in habit.completedDays) {
-      final weekKey = _isoWeekKey(d);
-      weekCounts[weekKey] = (weekCounts[weekKey] ?? 0) + 1;
-    }
-
-    // Get current week key
-    final currentWeekKey = _isoWeekKey(todayDate);
-
-    // Walk backward through weeks
-    int currentStreak = 0;
-    DateTime checkDate = _startOfWeek(todayDate);
-
-    for (int weekOffset = 0; weekOffset < 52; weekOffset++) {
-      final weekStart = checkDate.subtract(Duration(days: weekOffset * 7));
-      final weekKey = _isoWeekKey(weekStart);
-      final count = weekCounts[weekKey] ?? 0;
-
-      if (count >= habit.weeklyTarget) {
-        currentStreak++;
-      } else {
-        // Current incomplete week is OK
-        if (weekKey == currentWeekKey && weekOffset == 0) continue;
-        break;
-      }
-    }
-
-    habit.streak = currentStreak;
-
-    // Longest streak of consecutive qualifying weeks
-    if (habit.completedDays.isEmpty) {
-      habit.longestStreak = 0;
-      return;
-    }
-
-    final firstDate = habit.completedDays.first;
-    final totalWeeks =
-        (todayDate.difference(firstDate).inDays / 7).ceil() + 1;
-    DateTime weekStart = _startOfWeek(firstDate);
-
-    int maxStreak = 0;
-    int tempStreak = 0;
-
-    for (int w = 0; w < totalWeeks; w++) {
-      final ws = weekStart.add(Duration(days: w * 7));
-      final wk = _isoWeekKey(ws);
-      final count = weekCounts[wk] ?? 0;
-
-      if (count >= habit.weeklyTarget) {
-        tempStreak++;
-      } else {
-        if (tempStreak > maxStreak) maxStreak = tempStreak;
-        tempStreak = 0;
-      }
-    }
-    if (tempStreak > maxStreak) maxStreak = tempStreak;
-    habit.longestStreak = maxStreak;
-  }
-
-  /// Returns the Monday of the week containing [date].
-  DateTime _startOfWeek(DateTime date) {
-    final d = DateTime(date.year, date.month, date.day);
-    return d.subtract(Duration(days: d.weekday - 1));
-  }
-
-  /// Returns "YYYY-WNN" ISO week key for grouping.
-  String _isoWeekKey(DateTime date) {
-    final d = DateTime(date.year, date.month, date.day);
-    final monday = _startOfWeek(d);
-    // Calculate ISO week number
-    final jan1 = DateTime(monday.year, 1, 1);
-    final weekNumber =
-        ((monday.difference(jan1).inDays) / 7).floor() + 1;
-    return '${monday.year}-W$weekNumber';
-  }
-
-  // Toggle completion for a specific date (past editing)
   Future<bool?> toggleHabitDate(int id, DateTime date) async {
     final normalizedDate = DateTime(date.year, date.month, date.day);
-
     final today = DateTime.now();
     final todayNormalized = DateTime(today.year, today.month, today.day);
-    if (normalizedDate.isAfter(todayNormalized)) {
-      return null;
-    }
+    if (normalizedDate.isAfter(todayNormalized)) return null;
 
     final habit = await isar.habits.get(id);
     if (habit == null) return null;
@@ -378,7 +133,6 @@ class HabitDatabase extends ChangeNotifier {
     return nowCompleted;
   }
 
-  // Rename the habit
   Future<void> updateHabitName(int id, String newName) async {
     final habit = await isar.habits.get(id);
     if (habit != null) {
@@ -390,7 +144,6 @@ class HabitDatabase extends ChangeNotifier {
     readHabits();
   }
 
-  // Update frequency settings
   Future<void> updateHabitFrequency(
     int id, {
     required int frequencyType,
@@ -410,7 +163,6 @@ class HabitDatabase extends ChangeNotifier {
     readHabits();
   }
 
-  // Update reminder
   Future<void> updateHabitReminder(int id, DateTime? time, bool isOn) async {
     final habit = await isar.habits.get(id);
     if (habit != null) {
@@ -419,7 +171,6 @@ class HabitDatabase extends ChangeNotifier {
         habit.isReminderOn = isOn;
         await isar.habits.put(habit);
       });
-
       if (isOn && time != null) {
         await _notificationService.scheduleReminder(id, habit.name, time);
       } else {
@@ -429,7 +180,6 @@ class HabitDatabase extends ChangeNotifier {
     readHabits();
   }
 
-  // Delete habits
   Future<void> deleteHabit(int id) async {
     await _notificationService.cancelReminder(id);
     await isar.writeTxn(() async {
@@ -438,22 +188,277 @@ class HabitDatabase extends ChangeNotifier {
     readHabits();
   }
 
-  /// Helper: check if today is a scheduled day for this habit
-  static bool isTodayScheduled(Habit habit) {
-    final todayWeekday = DateTime.now().weekday; // 1=Mon ... 7=Sun
+  // ───────────────────────── STREAK CALCULATION ─────────────────────────
+
+  void _calculateStreaks(Habit habit) {
+    if (habit.completedDays.isEmpty) {
+      habit.streak = 0;
+      habit.longestStreak = 0;
+      return;
+    }
+    habit.completedDays.sort();
+
     switch (habit.frequencyType) {
-      case 0: // daily
+      case 0:
+        _calculateDailyStreaks(habit);
+        break;
+      case 1:
+        _calculateCustomDaysStreaks(habit);
+        break;
+      case 2:
+        _calculateWeeklyTargetStreaks(habit);
+        break;
+      default:
+        _calculateDailyStreaks(habit);
+    }
+  }
+
+  /// Daily: every consecutive calendar day.
+  void _calculateDailyStreaks(Habit habit) {
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final yesterdayDate = todayDate.subtract(const Duration(days: 1));
+
+    int currentStreak = 0;
+
+    if (habit.completedDays.last.isAtSameMomentAs(todayDate)) {
+      currentStreak = 1;
+      DateTime checkDate = yesterdayDate;
+      for (int i = habit.completedDays.length - 2; i >= 0; i--) {
+        if (habit.completedDays[i].isAtSameMomentAs(checkDate)) {
+          currentStreak++;
+          checkDate = checkDate.subtract(const Duration(days: 1));
+        } else {
+          break;
+        }
+      }
+    } else {
+      if (habit.completedDays.any((d) => d.isAtSameMomentAs(yesterdayDate))) {
+        DateTime checkDate = yesterdayDate;
+        for (int i = habit.completedDays.length - 1; i >= 0; i--) {
+          if (habit.completedDays[i].isAtSameMomentAs(checkDate)) {
+            currentStreak++;
+            checkDate = checkDate.subtract(const Duration(days: 1));
+          } else if (habit.completedDays[i].isBefore(checkDate)) {
+            break;
+          }
+        }
+      }
+    }
+    habit.streak = currentStreak;
+
+    // Longest streak (full history)
+    int temp = 0, max = 0;
+    for (int i = 0; i < habit.completedDays.length; i++) {
+      if (i == 0) {
+        temp = 1;
+      } else {
+        temp = (habit.completedDays[i]
+                    .difference(habit.completedDays[i - 1])
+                    .inDays ==
+                1)
+            ? temp + 1
+            : 1;
+      }
+      if (temp > max) max = temp;
+    }
+    habit.longestStreak = max;
+  }
+
+  /// Custom days: WEEK streak — consecutive weeks where every scheduled
+  /// weekday was completed.
+  ///
+  /// Uses the first completion date as a proxy for "habit creation".
+  /// Scheduled days before the first completion are ignored (the habit
+  /// didn't exist yet). Today is treated leniently — not completing today
+  /// doesn't break the streak.
+  void _calculateCustomDaysStreaks(Habit habit) {
+    if (habit.customDays.isEmpty) {
+      _calculateDailyStreaks(habit);
+      return;
+    }
+
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+
+    // First completion is the earliest date the habit was ever done
+    final firstCompletion = habit.completedDays.first; // already sorted
+
+    // Build O(1) lookup set
+    final completedSet = <String>{};
+    for (final d in habit.completedDays) {
+      completedSet.add('${d.year}-${d.month}-${d.day}');
+    }
+
+    final sortedDays = List<int>.from(habit.customDays)..sort();
+
+    // Monday of a date
+    DateTime monday(DateTime d) =>
+        DateTime(d.year, d.month, d.day)
+            .subtract(Duration(days: d.weekday - 1));
+
+    /// Check if a week is satisfied.
+    /// For the current week: skip future days and today (if not done).
+    /// Always skip days before [firstCompletion] (habit didn't exist).
+    /// Needs at least one completion in the week to count.
+    bool isWeekSatisfied(DateTime weekStart, bool isCurrentWeek) {
+      bool hasAnyCompletion = false;
+      for (final dayNum in sortedDays) {
+        final date = weekStart.add(Duration(days: dayNum - 1));
+        final key = '${date.year}-${date.month}-${date.day}';
+
+        // Skip days before the habit existed
+        if (date.isBefore(firstCompletion)) continue;
+
+        // Skip future days in the current week
+        if (isCurrentWeek && date.isAfter(todayDate)) continue;
+
+        // Today: count if done, skip if not (don't penalise)
+        if (isCurrentWeek && date.isAtSameMomentAs(todayDate)) {
+          if (completedSet.contains(key)) hasAnyCompletion = true;
+          continue; // either way, don't fail the week for today
+        }
+
+        // Past scheduled day — must be completed
+        if (completedSet.contains(key)) {
+          hasAnyCompletion = true;
+        } else {
+          return false; // missed a past scheduled day
+        }
+      }
+      return hasAnyCompletion; // need at least one completion to count
+    }
+
+    // Walk backward from current week
+    int currentStreak = 0;
+    final currentMonday = monday(todayDate);
+
+    for (int w = 0; w < 200; w++) {
+      final ws = currentMonday.subtract(Duration(days: w * 7));
+
+      // Don't check weeks entirely before the habit existed
+      final weekEnd = ws.add(const Duration(days: 6));
+      if (weekEnd.isBefore(firstCompletion)) break;
+
+      if (isWeekSatisfied(ws, w == 0)) {
+        currentStreak++;
+      } else {
+        // Current week that's not satisfied yet: don't count, don't break
+        if (w == 0) continue;
+        break;
+      }
+    }
+    habit.streak = currentStreak;
+
+    // Longest streak (scan full history)
+    final firstMonday = monday(firstCompletion);
+    final totalWeeks =
+        (currentMonday.difference(firstMonday).inDays ~/ 7) + 1;
+
+    int temp = 0, max = 0;
+    for (int w = 0; w < totalWeeks; w++) {
+      final ws = firstMonday.add(Duration(days: w * 7));
+      final isCurrent = ws.isAtSameMomentAs(currentMonday);
+      if (isWeekSatisfied(ws, isCurrent)) {
+        temp++;
+      } else {
+        if (temp > max) max = temp;
+        temp = 0;
+      }
+    }
+    if (temp > max) max = temp;
+    habit.longestStreak = max;
+  }
+
+  /// X per week: WEEK streak — consecutive weeks where completions ≥ target.
+  ///
+  /// Current (incomplete) week doesn't break the streak but only counts
+  /// if the target is already met.
+  void _calculateWeeklyTargetStreaks(Habit habit) {
+    if (habit.weeklyTarget <= 0) {
+      habit.streak = 0;
+      habit.longestStreak = 0;
+      return;
+    }
+
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final firstCompletion = habit.completedDays.first; // already sorted
+
+    // Group completions by week (key = Monday date string)
+    DateTime monday(DateTime d) =>
+        DateTime(d.year, d.month, d.day).subtract(Duration(days: d.weekday - 1));
+
+    final Map<String, int> weekCounts = {};
+    for (final d in habit.completedDays) {
+      final m = monday(d);
+      final key = '${m.year}-${m.month}-${m.day}';
+      weekCounts[key] = (weekCounts[key] ?? 0) + 1;
+    }
+
+    String weekKey(DateTime ws) => '${ws.year}-${ws.month}-${ws.day}';
+
+    final currentMonday = monday(todayDate);
+    final firstMonday = monday(firstCompletion);
+
+    // Walk backward
+    int currentStreak = 0;
+    for (int w = 0; w < 200; w++) {
+      final ws = currentMonday.subtract(Duration(days: w * 7));
+
+      // Don't check weeks before the habit existed
+      final weekEnd = ws.add(const Duration(days: 6));
+      if (weekEnd.isBefore(firstCompletion)) break;
+
+      final count = weekCounts[weekKey(ws)] ?? 0;
+
+      if (count >= habit.weeklyTarget) {
+        currentStreak++;
+      } else {
+        // Current incomplete week — don't break, but don't count either
+        if (w == 0) continue;
+        break;
+      }
+    }
+    habit.streak = currentStreak;
+
+    // Longest streak
+    final totalWeeks =
+        (currentMonday.difference(firstMonday).inDays ~/ 7) + 1;
+
+    int temp = 0, max = 0;
+    for (int w = 0; w < totalWeeks; w++) {
+      final ws = firstMonday.add(Duration(days: w * 7));
+      final count = weekCounts[weekKey(ws)] ?? 0;
+      if (count >= habit.weeklyTarget) {
+        temp++;
+      } else {
+        if (temp > max) max = temp;
+        temp = 0;
+      }
+    }
+    if (temp > max) max = temp;
+    habit.longestStreak = max;
+  }
+
+  // ───────────────────────── HELPERS ─────────────────────────
+
+  /// Check if today is a scheduled day for this habit.
+  static bool isTodayScheduled(Habit habit) {
+    final todayWeekday = DateTime.now().weekday;
+    switch (habit.frequencyType) {
+      case 0:
         return true;
-      case 1: // custom days
+      case 1:
         return habit.customDays.contains(todayWeekday);
-      case 2: // x per week → always allowed
+      case 2:
         return true;
       default:
         return true;
     }
   }
 
-  /// Helper: get a human-readable frequency label
+  /// Human-readable frequency label (e.g. "Mon, Wed, Fri" or "3x / week").
   static String frequencyLabel(Habit habit) {
     switch (habit.frequencyType) {
       case 0:
@@ -468,5 +473,13 @@ class HabitDatabase extends ChangeNotifier {
       default:
         return 'Daily';
     }
+  }
+
+  /// Streak text for display: "5 day streak" or "3 week streak".
+  /// Returns null if streak is 0.
+  static String? streakLabel(Habit habit) {
+    if (habit.streak <= 0) return null;
+    final unit = habit.frequencyType == 0 ? 'day' : 'week';
+    return '${habit.streak} $unit streak';
   }
 }

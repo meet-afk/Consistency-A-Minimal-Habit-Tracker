@@ -18,8 +18,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _entranceController;
-  late Animation<double> _greetingFade;
-  late Animation<Offset> _greetingSlide;
   late Animation<double> _cardsFade;
   late Animation<Offset> _cardsSlide;
   late Animation<double> _heatmapFade;
@@ -46,28 +44,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     const curve = Curves.easeOutCubic;
 
-    _greetingFade = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(
-          parent: _entranceController,
-          curve: const Interval(0.0, 0.25, curve: curve)),
-    );
-    _greetingSlide =
-        Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
-      CurvedAnimation(
-          parent: _entranceController,
-          curve: const Interval(0.0, 0.25, curve: curve)),
-    );
-
     _cardsFade = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(
           parent: _entranceController,
-          curve: const Interval(0.12, 0.37, curve: curve)),
+          curve: const Interval(0.0, 0.25, curve: curve)),
     );
     _cardsSlide =
         Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
       CurvedAnimation(
           parent: _entranceController,
-          curve: const Interval(0.12, 0.37, curve: curve)),
+          curve: const Interval(0.0, 0.25, curve: curve)),
     );
 
     _heatmapFade = Tween<double>(begin: 0, end: 1).animate(
@@ -117,13 +103,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  String get _greeting {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }
-
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -169,45 +148,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           return ListView(
             padding: const EdgeInsets.only(bottom: 100),
             children: [
-              // Greeting
-              SlideTransition(
-                position: _greetingSlide,
-                child: FadeTransition(
-                  opacity: _greetingFade,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$_greeting 👋',
-                          style: GoogleFonts.aBeeZee(
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.inversePrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          child: Text(
-                            totalHabits > 0
-                                ? '$completedToday of $totalHabits habits done today'
-                                : 'Start by adding your first habit!',
-                            key: ValueKey('$completedToday/$totalHabits'),
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: colorScheme.inversePrimary
-                                  .withValues(alpha: 0.5),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
+              const SizedBox(height: 10),
               // Progress + Stats cards
               SlideTransition(
                 position: _cardsSlide,
@@ -341,17 +282,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                         ),
                       ),
-                      FutureBuilder<DateTime?>(
-                        future: database.getFirstLaunchDate(),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            return MyHeatMap(
-                              startDate: snapshot.data!,
-                              datasets: prepHeatMapDataset(habits),
-                            );
-                          }
-                          return const SizedBox(height: 80);
-                        },
+                      const SizedBox(height: 8),
+                      MonthlyHeatMap(
+                        datasets: prepHeatMapDataset(habits),
+                        totalHabits: totalHabits,
                       ),
                     ],
                   ),
@@ -429,7 +363,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: MyHabitTile(
                       isCompleted: completed,
                       text: habit.name,
-                      streak: habit.streak,
+                      streakLabel: HabitDatabase.streakLabel(habit),
                       frequencyLabel: HabitDatabase.frequencyLabel(habit),
                       onChanged: (val) {
                         if (val != null) {

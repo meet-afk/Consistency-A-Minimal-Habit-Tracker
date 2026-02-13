@@ -216,18 +216,11 @@ class _HabitDetailPageState extends State<HabitDetailPage>
                         ),
                       ),
                       const SizedBox(height: 8),
-                      FutureBuilder<DateTime?>(
-                        future: database.getFirstLaunchDate(),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            return MyHeatMap(
-                              startDate: snapshot.data!,
-                              datasets: prepHeatMapDataset([habit]),
-                              onClick: (date) => _showDateEditSheet(context, date, habit, database),
-                            );
-                          }
-                          return const SizedBox.shrink();
-                        },
+                      MonthlyHeatMap(
+                        datasets: prepHeatMapDataset([habit]),
+                        totalHabits: 1,
+                        onDayTap: (date) => _showDateEditSheet(
+                            context, date, habit, database),
                       ),
                     ],
                   ),

@@ -38,13 +38,10 @@ class _MyDrawerState extends State<MyDrawer> {
       backgroundColor: colorScheme.surface,
       child: Column(
         children: [
-          // Drawer header
+          // ── Header ──
           Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(24, 64, 24, 24),
-            decoration: BoxDecoration(
-              color: colorScheme.secondary,
-            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -70,14 +67,14 @@ class _MyDrawerState extends State<MyDrawer> {
                   'Build better habits',
                   style: TextStyle(
                     fontSize: 13,
-                    color: colorScheme.inversePrimary.withValues(alpha: 0.5),
+                    color: colorScheme.inversePrimary.withValues(alpha: 0.4),
                   ),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 8),
+          // ── Menu Items ──
 
           // Achievements
           _buildDrawerItem(
@@ -90,7 +87,8 @@ class _MyDrawerState extends State<MyDrawer> {
               Navigator.push(
                 context,
                 PageRouteBuilder(
-                  pageBuilder: (context2, animation1, animation2) => const AchievementsPage(),
+                  pageBuilder: (context2, animation1, animation2) =>
+                      const AchievementsPage(),
                   transitionsBuilder: (context2, anim, animation2, child) {
                     return SlideTransition(
                       position: Tween<Offset>(
@@ -107,8 +105,6 @@ class _MyDrawerState extends State<MyDrawer> {
             },
           ),
 
-          const Divider(indent: 24, endIndent: 24, height: 1),
-
           // Export Data
           _buildDrawerItem(
             context,
@@ -123,7 +119,7 @@ class _MyDrawerState extends State<MyDrawer> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                        success ? '✅ Backup exported!' : '❌ Export cancelled'),
+                        success ? 'Backup exported!' : 'Export cancelled'),
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
@@ -142,7 +138,6 @@ class _MyDrawerState extends State<MyDrawer> {
             color: Colors.blue.shade600,
             onTap: () async {
               Navigator.pop(context);
-              // Show confirmation dialog
               final confirm = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -176,8 +171,8 @@ class _MyDrawerState extends State<MyDrawer> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(isSuccess
-                        ? result.replaceFirst('success: ', '✅ ')
-                        : result.replaceFirst('error: ', '❌ ')),
+                        ? result.replaceFirst('success: ', '')
+                        : result.replaceFirst('error: ', '')),
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
@@ -187,43 +182,51 @@ class _MyDrawerState extends State<MyDrawer> {
             },
           ),
 
-          const Divider(indent: 24, endIndent: 24, height: 1),
+          const Spacer(),
 
-          // Dark mode toggle
+          // ── Dark Mode Toggle (bottom) ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              leading: Icon(
-                themeProvider.isDarkMode
-                    ? Icons.dark_mode_rounded
-                    : Icons.light_mode_rounded,
-                color: colorScheme.inversePrimary,
+            child: Container(
+              decoration: BoxDecoration(
+                color: colorScheme.secondary,
+                borderRadius: BorderRadius.circular(14),
               ),
-              title: Text(
-                'Dark Mode',
-                style: GoogleFonts.aBeeZee(
+              child: ListTile(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                leading: Icon(
+                  themeProvider.isDarkMode
+                      ? Icons.dark_mode_rounded
+                      : Icons.light_mode_rounded,
                   color: colorScheme.inversePrimary,
-                  fontWeight: FontWeight.w600,
+                  size: 22,
                 ),
-              ),
-              trailing: CupertinoSwitch(
-                value: themeProvider.isDarkMode,
-                activeTrackColor: const Color(0xFF407CE6),
-                onChanged: (_) => themeProvider.toggleTheme(),
+                title: Text(
+                  'Dark Mode',
+                  style: GoogleFonts.aBeeZee(
+                    color: colorScheme.inversePrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                trailing: CupertinoSwitch(
+                  value: themeProvider.isDarkMode,
+                  activeTrackColor: const Color(0xFF407CE6),
+                  onChanged: (_) => themeProvider.toggleTheme(),
+                ),
               ),
             ),
           ),
 
-          const Spacer(),
-
-          // Footer
+          // ── Footer ──
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
             child: Text(
-              'Consistency v1.0',
+              'Consistency v0.2',
               style: TextStyle(
                 fontSize: 12,
-                color: colorScheme.inversePrimary.withValues(alpha: 0.3),
+                color: colorScheme.inversePrimary.withValues(alpha: 0.25),
               ),
             ),
           ),

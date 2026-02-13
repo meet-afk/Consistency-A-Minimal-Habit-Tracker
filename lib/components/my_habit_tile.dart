@@ -4,7 +4,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 class MyHabitTile extends StatefulWidget {
   final bool isCompleted;
   final String text;
-  final int streak;
+  final String? streakLabel;
   final String frequencyLabel;
   final void Function(bool?)? onChanged;
   final void Function(BuildContext)? editHabit;
@@ -15,7 +15,7 @@ class MyHabitTile extends StatefulWidget {
     super.key,
     required this.isCompleted,
     required this.text,
-    required this.streak,
+    this.streakLabel,
     this.frequencyLabel = 'Daily',
     required this.onChanged,
     required this.editHabit,
@@ -130,11 +130,11 @@ class _MyHabitTileState extends State<MyHabitTile>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (widget.streak > 0)
+                    if (widget.streakLabel != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          '🔥 ${widget.streak} day streak',
+                          '🔥 ${widget.streakLabel}',
                           style: TextStyle(
                             color: widget.isCompleted
                                 ? Colors.white70
