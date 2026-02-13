@@ -163,7 +163,7 @@ class _MyDrawerState extends State<MyDrawer> {
                 ),
               );
 
-              if (confirm != true || !context.mounted) return;
+              if (confirm != true ) return;
 
               final result = await BackupService.importData();
               if (context.mounted) {
